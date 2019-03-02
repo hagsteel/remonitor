@@ -1,0 +1,16 @@
+[package]
+name = "remonitor"
+version = "0.1.0"
+authors = ["Jonas Hagstedt <hagstedt@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+sonr = {git = "https://github.com/hagsteel/sonr.git"}
+sonr_tls = { path = "../sonr-tls" }
+bytes = { version = "0.4.11", features = ["serde"] }
+serde = { version = "1.0.88", features = ["derive"] }
+serde_json = "1.0.39"
+native-tls = "0.2.2"
+toml = "0.4.10"
+serde_derive = "1.0.88"
+log = "0.4.6"
