@@ -65,7 +65,7 @@ pub fn serve(config: Config) -> Result<()> {
     let mut uds_client_queue  = ReactiveQueue::unbounded();
     let mut uds_monitor_queue = ReactiveQueue::unbounded();
 
-    for _ in 0..7 { 
+    for _ in 0..config.thread_count { 
         let tcp_monitor_deque = tcp_monitor_queue.get_mut().deque();
         let tcp_clients_deque = tcp_client_queue.get_mut().deque();
         let uds_monitor_deque = uds_monitor_queue.deque();
