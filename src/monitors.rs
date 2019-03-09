@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 
 use bytes::Bytes;
-use sonr::reactor::{Reaction, Reactive};
+use sonr::reactor::{Reaction, Reactor};
 use sonr::sync::broadcast::Broadcast;
 use sonr::{Event, Evented};
 
@@ -36,7 +36,7 @@ where
     }
 }
 
-impl<S, T, C> Reactive for Monitors<S, T, C>
+impl<S, T, C> Reactor for Monitors<S, T, C>
 where
     S: StreamRef<T> + Read + Write,
     T: Evented + Read + Write,
@@ -45,34 +45,41 @@ where
     type Input = (Connection<S, T>, C);
     type Output = ();
 
-    fn reacting(&mut self, event: Event) -> bool {
-        let broadcast = &self.broadcast;
+    fn react(&mut self, reaction: Reaction<Self::Input>) -> Reaction<Self::Output> {
+        match reaction {
+            Reaction::Event(event) => {
+                let broadcast = &self.broadcast;
 
-        let r = self
-            .connections
-            .read_messages::<_, Message>(event, |message| { 
-                broadcast.publish(C::encode(message))
-            });
+                let r = self
+                    .connections
+                    .read_messages::<_, Message>(event, |message| { 
+                        broadcast.publish(C::encode(message))
+                    });
 
-        let w = self.connections.write_messages(event);
+                let w = self.connections.write_messages(event);
 
-        w | r
-    }
+                if w | r {
+                    Reaction::Continue
+                } else {
+                    Reaction::Event(event)
+                }
+            } 
+            Reaction::Value(value) => {
+                let (mut connection, codec) = value;
+                let buf = status_msg("OK");
+                let bytes = C::encode(buf);
+                connection.push_write_buffer(bytes);
+                if connection.writable() {
+                    while let Some(Ok(_)) = connection.write_buffer() { }
+                }
 
-    fn react_to(&mut self, value: Self::Input) {
-        let (mut connection, codec) = value;
-        let buf = status_msg("OK");
-        let bytes = C::encode(buf);
-        connection.push_write_buffer(bytes);
-        if connection.writable() {
-            while let Some(Ok(_)) = connection.write_buffer() { }
+                self.connections
+                    .connections
+                    .insert(connection.token(), (connection, codec));
+
+                Reaction::Continue
+            }
+            Reaction::Continue => Reaction::Continue,
         }
-        self.connections
-            .connections
-            .insert(connection.token(), (connection, codec));
-    }
-
-    fn react(&mut self) -> Reaction<Self::Output> {
-        Reaction::NoReaction
     }
 }

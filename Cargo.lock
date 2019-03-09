@@ -456,7 +456,7 @@ dependencies = [
  "serde 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
- "sonr 0.1.0 (git+https://github.com/hagsteel/sonr.git)",
+ "sonr 0.1.0",
  "sonr_tls 0.1.0",
  "toml 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -570,7 +570,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "sonr"
 version = "0.1.0"
-source = "git+https://github.com/hagsteel/sonr.git#2468f46832d1495ed1f7d5309fb2d6cd1925e381"
+source = "git+https://github.com/hagsteel/sonr.git#80d76cbda5289db592b1d3a8d4c8a086e1908d8c"
+dependencies = [
+ "crossbeam 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mio 0.6.16 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mio-uds 0.6.7 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "sonr"
+version = "0.1.0"
 dependencies = [
  "crossbeam 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "mio 0.6.16 (registry+https://github.com/rust-lang/crates.io-index)",

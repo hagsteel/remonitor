@@ -3,9 +3,9 @@ use std::marker::PhantomData;
 
 use bytes::Bytes;
 use sonr::errors::Result;
-use sonr::reactor::{Reaction, Reactive};
+use sonr::reactor::{Reaction, Reactor};
 use sonr::sync::signal::{ReactiveSignalReceiver, SignalReceiver};
-use sonr::{Event, Evented, Token};
+use sonr::{Evented, Token};
 
 use crate::codecs::Codec;
 use crate::connections::{status_msg, Connection, Connections, StreamRef};
@@ -54,7 +54,7 @@ where
     }
 }
 
-impl<S, T, C> Reactive for Clients<S, T, C>
+impl<S, T, C> Reactor for Clients<S, T, C>
 where
     S: StreamRef<T> + Read + Write,
     T: Evented + Read + Write,
@@ -63,30 +63,55 @@ where
     type Input = (Connection<S, T>, C);
     type Output = ();
 
-    fn reacting(&mut self, event: Event) -> bool {
-        if self.receive_messages(event.token()) {
-            return true;
-        }
+    // fn reacting(&mut self, event: Event) -> bool {
+    //     if self.receive_messages(event.token()) {
+    //         return true;
+    //     }
 
-        self.connections.write_messages(event)
-    }
+    //     self.connections.write_messages(event)
+    // }
 
     // Accept a new connection.
-    fn react_to(&mut self, value: Self::Input) {
-        let (mut connection, codec) = value;
-        let buf = status_msg("OK");
-        let bytes = C::encode(buf);
-        connection.push_write_buffer(bytes);
-        if connection.writable() {
-            while let Some(Ok(_)) = connection.write_buffer() { }
-        }
-        self.connections
-            .connections
-            .insert(connection.token(), (connection, codec));
-    }
+    // fn react_to(&mut self, value: Self::Input) {
+    //     let (mut connection, codec) = value;
+    //     let buf = status_msg("OK");
+    //     let bytes = C::encode(buf);
+    //     connection.push_write_buffer(bytes);
+    //     if connection.writable() {
+    //         while let Some(Ok(_)) = connection.write_buffer() { }
+    //     }
+    //     self.connections
+    //         .connections
+    //         .insert(connection.token(), (connection, codec));
+    // }
 
     // There is no output
-    fn react(&mut self) -> Reaction<Self::Output> {
-        Reaction::NoReaction
+    fn react(&mut self, reaction: Reaction<Self::Input>) -> Reaction<Self::Output> {
+        match reaction {
+            Reaction::Value(value) => { 
+                let (mut connection, codec) = value;
+                let buf = status_msg("OK");
+                let bytes = C::encode(buf);
+                connection.push_write_buffer(bytes);
+                if connection.writable() {
+                    while let Some(Ok(_)) = connection.write_buffer() { }
+                }
+                self.connections
+                    .connections
+                    .insert(connection.token(), (connection, codec)); 
+                Reaction::Continue
+            }
+            Reaction::Event(event) => {
+                if self.receive_messages(event.token()) {
+                    return Reaction::Continue
+                } 
+                if self.connections.write_messages(event) {
+                    Reaction::Continue
+                } else {
+                    Reaction::Event(event)
+                }
+            }
+            Reaction::Continue => Reaction::Continue,
+        }
     }
 }

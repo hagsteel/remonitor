@@ -8,7 +8,7 @@ use sonr::system::System;
 use sonr::net::tcp::ReactiveTcpListener;
 use sonr::net::uds::{ReactiveUdsListener, UnixStream};
 use sonr::net::stream::Stream;
-use sonr::reactor::Reactive;
+use sonr::reactor::Reactor;
 use sonr::sync::queue::{ReactiveQueue, ReactiveDeque, Dequeue};
 use sonr::sync::broadcast::Broadcast;
 use sonr::sync::signal::{SignalSender, ReactiveSignalReceiver, SignalReceiver};

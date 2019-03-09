@@ -1,9 +1,8 @@
 use std::io::{Read, BufReader};
 use std::fs::File;
 use std::collections::HashMap;
-use sonr::reactor::{Reactive, Reaction};
+use sonr::reactor::{Reactor, Reaction};
 use sonr::errors::Result;
-use sonr::Event;
 use serde_derive::Deserialize;
 
 #[derive(Clone, Deserialize, Debug)]
@@ -53,11 +52,11 @@ impl Config {
     }
 }
 
-pub struct Optional<T: Reactive> {
+pub struct Optional<T: Reactor> {
     reactor: Option<T>,
 }
 
-impl<T: Reactive> Optional<T> {
+impl<T: Reactor> Optional<T> {
     pub fn new<F>(enabled: bool, f: F) -> Self 
         where F: FnOnce() -> T
     {
@@ -68,28 +67,14 @@ impl<T: Reactive> Optional<T> {
     }
 }
 
-impl<T: Reactive> Reactive for Optional<T> {
+impl<T: Reactor> Reactor for Optional<T> {
     type Output = T::Output;
     type Input = T::Input;
 
-    fn reacting(&mut self, event: Event) -> bool {
+    fn react(&mut self, reaction: Reaction<Self::Input>) -> Reaction<Self::Output> {
         match self.reactor {
-            Some(ref mut r) => r.reacting(event),
-            None => false 
-        }
-    }
-
-    fn react(&mut self) -> Reaction<Self::Output> {
-        match self.reactor {
-            Some(ref mut r) => r.react(),
-            None => Reaction::NoReaction 
-        }
-    }
-
-    fn react_to(&mut self, input: Self::Input) {
-        match self.reactor {
-            Some(ref mut r) => r.react_to(input),
-            None => ()
+            Some(ref mut r) => r.react(reaction),
+            None => Reaction::Continue 
         }
     }
 }

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use sonr::errors::Result;
 use sonr::net::stream::Stream;
 use sonr::{Event, Evented, Token};
-use sonr::reactor::{Reactor, Reaction};
+use sonr::reactor::Reaction;
 
 use crate::codecs::Codec;
 use crate::throttle::ThrottleKey;
@@ -79,10 +79,6 @@ where
     _p: PhantomData<T>,
 }
 
-// impl<S, T> Reactor for Connection<S, T> {
-//     type Input 
-// }
-
 impl<S, T> Connection<S, T>
 where
     S: StreamRef<T> + Read + Write,
@@ -139,10 +135,7 @@ where
                             self.write_buffers.insert(0, remainder);
                         }
                     }
-                    Err(ref e) if e.kind() == WouldBlock => {
-                        self.state = ConnectionState::Blocked;
-                        self.write_buffers.insert(0, buf);
-                    }
+                    Err(ref e) if e.kind() == WouldBlock => self.state = ConnectionState::Blocked,
                     Err(ref _e) => self.state = ConnectionState::Closed,
                 }
                 Some(res)

@@ -73,56 +73,75 @@ impl<T> ThrottledOutput<T> {
     }
 }
 
-impl<T> Reactive for ThrottledOutput<T>
+impl<T> Reactor for ThrottledOutput<T>
 where
     T: ThrottleKey + Send + 'static,
 {
     type Output = ();
     type Input = T;
 
-    fn reacting(&mut self, event: Event) -> bool {
-        if self.throttle_rx.reacting(event) {
-            if let Ok((addr, throttle)) = self.throttle_rx.try_recv() {
-                self.throttled.insert(addr, throttle);
-            }
-            true
-        } else {
-            self.inner.reacting(event)
-        }
-    }
+    // fn reacting(&mut self, event: Event) -> bool {
+    //     if self.throttle_rx.reacting(event) {
+    //         if let Ok((addr, throttle)) = self.throttle_rx.try_recv() {
+    //             self.throttled.insert(addr, throttle);
+    //         }
+    //         true
+    //     } else {
+    //         self.inner.reacting(event)
+    //     }
+    // }
 
-    fn react_to(&mut self, value: Self::Input) {
-        // Once THROTTLE_CHECK number of connections reached, 
-        // cycle the connections and drop the expired ones
-        //
-        // This is a rather naive check, but it works for now
-        self.throttle_check -= 1;
-        if self.throttle_check == 0 {
-            self.throttle_check = THROTTLE_CHECK;
-            let mut remove_keys: Vec<String> = Vec::new();
-            for (k, v) in &self.throttled {
-                if v.expired() {
-                    remove_keys.push(k.clone());
+    fn react(&mut self, reaction: Reaction<Self::Input>) -> Reaction<Self::Output> {
+        match reaction {
+            Reaction::Value(value) => { 
+                // Once THROTTLE_CHECK number of connections reached, 
+                // cycle the connections and drop the expired ones
+                //
+                // This is a rather naive check, but it works for now
+                self.throttle_check -= 1;
+                if self.throttle_check == 0 {
+                    self.throttle_check = THROTTLE_CHECK;
+                    let mut remove_keys: Vec<String> = Vec::new();
+                    for (k, v) in &self.throttled {
+                        if v.expired() {
+                            remove_keys.push(k.clone());
+                        }
+                    }
+                    remove_keys.into_iter().for_each(|k| { self.throttled.remove(&k); });
                 }
-            }
-            remove_keys.into_iter().for_each(|k| { self.throttled.remove(&k); });
-        }
 
-        if let Ok(key) = value.get_throttle_key() {
-            match self.throttled.get(&key).map(|t| t.expired()) {
-                Some(false) => {}
-                Some(true) => {
-                    self.throttled.remove(&key);
-                    self.inner.react_to(value);
+                if let Ok(key) = value.get_throttle_key() {
+                    match self.throttled.get(&key).map(|t| t.expired()) {
+                        Some(false) => {}
+                        Some(true) => {
+                            self.throttled.remove(&key);
+                            self.inner.react_to(value);
+                        }
+                        None => self.inner.react(reaction),
+                    }
+                } else {
+                    self.inner.react(reaction);
                 }
-                None => self.inner.react_to(value),
-            }
-        } else {
-            self.inner.react_to(value);
-        }
-    }
 
-    fn react(&mut self) -> Reaction<Self::Output> {
-        self.inner.react()
+                Reaction::Continue
+            }
+            Reaction::Event(event) => {
+                // Incoming throttles
+                if let Reaction::Value(val) = self.throttle_rx.react(event) {
+                } else {
+                    Reaction::Event(event)
+                }
+
+                if self.throttle_rx.reacting(event) {
+                    if let Ok((addr, throttle)) = self.throttle_rx.try_recv() {
+                        self.throttled.insert(addr, throttle);
+                    }
+                    true
+                } else {
+                    self.inner.reacting(event)
+                }
+            } 
+            Reaction::Continue => Reaction::Continue,
+        }
     }
 }

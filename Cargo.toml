@@ -5,7 +5,8 @@ authors = ["Jonas Hagstedt <hagstedt@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-sonr = {git = "https://github.com/hagsteel/sonr.git"}
+# sonr = {git = "https://github.com/hagsteel/sonr.git"}
+sonr = { path = "../sonr" }
 sonr_tls = { path = "../sonr-tls" }
 bytes = { version = "0.4.11", features = ["serde"] }
 serde = { version = "1.0.88", features = ["derive"] }
