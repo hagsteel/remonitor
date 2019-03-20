@@ -1,126 +1,138 @@
-use std::thread;
-use std::io::{Read, Write};
 use std::fs::remove_file;
+use std::io::{Read, Write};
 use std::sync::Arc;
+use std::thread;
 
-use sonr::Evented;
-use sonr::system::System;
-use sonr::net::tcp::ReactiveTcpListener;
-use sonr::net::uds::{ReactiveUdsListener, UnixStream};
-use sonr::net::stream::Stream;
-use sonr::reactor::Reactor;
-use sonr::sync::queue::{ReactiveQueue, ReactiveDeque, Dequeue};
-use sonr::sync::broadcast::Broadcast;
-use sonr::sync::signal::{SignalSender, ReactiveSignalReceiver, SignalReceiver};
 use sonr::errors::Result;
-use native_tls::TlsStream;
-use sonr_tls::ReactiveTlsAcceptor;
+use sonr::net::tcp::ReactiveTcpListener;
+use sonr::net::uds::ReactiveUdsListener;
+use sonr::prelude::*;
+use sonr::sync::broadcast::Broadcast;
+use sonr::sync::queue::{ReactiveDeque, ReactiveQueue};
+use sonr::Evented;
+use sonr_tls::TlsAcceptor;
 
-use crate::monitors::Monitors;
+use crate::auth::{AuthMessage, Authentication};
 use crate::clients::Clients;
 use crate::codecs::LineCodec;
 use crate::config::{Config, Optional};
-use crate::auth::Authentication;
+use crate::connections::messages::Message;
+use crate::monitors::Monitors;
 use crate::throttle::ThrottledOutput;
 
-use crate::connections::StreamRef;
-
-impl<T: Evented + Read + Write> StreamRef<T> for TlsStream<Stream<T>> {
-    fn stream(&self) -> &Stream<T> {
-        self.get_ref()
-    }
-
-    fn stream_mut(&mut self) -> &mut Stream<T> {
-        self.get_mut()
-    }
+fn tcp_listener(host: &str) -> ReactiveTcpListener {
+    ReactiveTcpListener::bind(host).unwrap()
 }
 
-type SelectedCodec = LineCodec;
+fn uds_listener(path: &str) -> ReactiveUdsListener {
+    let _ = remove_file(path);
+    ReactiveUdsListener::bind(path).unwrap()
+}
+
+fn tls<T: Evented + Read + Write>(config: &Config) -> TlsAcceptor<T> {
+    TlsAcceptor::new(&config.pfx_cert_path, &config.pfx_pass).expect("fail")
+}
 
 pub fn serve(config: Config) -> Result<()> {
     let config = Arc::new(config);
-    System::init().unwrap();
-    let monitor_broadcast = Broadcast::unbounded(); 
+    System::init()?;
 
-    let tcp_listener_client  = Optional::new(config.use_tcp(), || {
-        ReactiveTcpListener::bind(config.tcp_client_host()).unwrap() 
-    });
+    let broadcast = Broadcast::unbounded();
 
-    let tcp_listener_monitor = Optional::new(config.use_tcp(), || {
-        ReactiveTcpListener::bind(config.tcp_monitor_host()).unwrap() 
-    });
+    // Tcp client
+    let tcp_listener_client =
+        Optional::new(config.use_tcp(), || tcp_listener(config.tcp_client_host()));
+    let client_throttle = ThrottledOutput::new()?;
+    let mut tcp_client_queue = ReactiveQueue::unbounded();
 
-    let uds_listener_client  = Optional::new(config.use_uds(), || { 
-        let _ = remove_file(config.uds_client_path());
-        ReactiveUdsListener::bind(config.uds_client_path()).unwrap() 
-    });
+    // Uds client
+    let uds_listener_client =
+        Optional::new(config.use_uds(), || uds_listener(config.uds_client_path()));
+    let mut uds_client_queue = ReactiveQueue::unbounded();
 
-    let uds_listener_monitor = Optional::new(config.use_uds(), || { 
-        let _ = remove_file(config.uds_monitor_path());
-        ReactiveUdsListener::bind(config.uds_monitor_path()).unwrap() 
-    });
+    // Tcp Monitor
+    let tcp_listener_monitor =
+        Optional::new(config.use_tcp(), || tcp_listener(config.tcp_monitor_host()));
+    let monitor_throttle = ThrottledOutput::new()?;
+    let mut tcp_monitor_queue = ReactiveQueue::unbounded();
 
-    let mut tcp_client_queue  = ThrottledOutput::new(ReactiveQueue::unbounded())?;
-    let mut tcp_monitor_queue = ThrottledOutput::new(ReactiveQueue::unbounded())?;
-    let mut uds_client_queue  = ReactiveQueue::unbounded();
+    // Uds Monitor
+    let uds_listener_monitor =
+        Optional::new(config.use_uds(), || uds_listener(config.uds_monitor_path()));
     let mut uds_monitor_queue = ReactiveQueue::unbounded();
 
-    for _ in 0..config.thread_count { 
-        let tcp_monitor_deque = tcp_monitor_queue.get_mut().deque();
-        let tcp_clients_deque = tcp_client_queue.get_mut().deque();
+    for _ in 0..8 {
+        let tcp_client_throttle = client_throttle.sender();
+        let tcp_monitor_throttle = monitor_throttle.sender();
+        let tcp_client_deque = tcp_client_queue.deque();
+        let uds_client_deque = uds_client_queue.deque();
+        let tcp_monitor_deque = tcp_monitor_queue.deque();
         let uds_monitor_deque = uds_monitor_queue.deque();
-        let uds_clients_deque = uds_client_queue.deque();
-
-        let tcp_monitor_throttle = tcp_monitor_queue.sender();
-        let tcp_clients_throttle = tcp_client_queue.sender();
-
-        let monitor = monitor_broadcast.clone();
         let config = config.clone();
-
+        let monitor = broadcast.clone();
         thread::spawn(move || -> Result<()> {
-            System::init().unwrap();
-            // Tcp Clients
-            let incoming_streams = ReactiveDeque::new(tcp_clients_deque)?;
-            let tls_acceptor = ReactiveTlsAcceptor::new(&config.pfx_cert_path, &config.pfx_pass)?;
-            let authentication = Authentication::new(config.clone(), Some(tcp_clients_throttle));
-            let clients = Clients::<_, _, LineCodec>::new(monitor.subscriber())?;
-            let tcp_clients = incoming_streams.chain(tls_acceptor.chain(authentication.chain(clients)));
+            System::init()?;
 
-            // Tcp Monitors
-            let incoming_streams = ReactiveDeque::new(tcp_monitor_deque)?;
-            let tls_acceptor = ReactiveTlsAcceptor::new(&config.pfx_cert_path, &config.pfx_pass)?;
-            let authentication = Authentication::new(config.clone(), Some(tcp_monitor_throttle));
-            let monitors = Monitors::<_, _, LineCodec>::new(monitor.clone());
-            let tcp_monitors = incoming_streams.chain(tls_acceptor.chain(authentication.chain(monitors)));
+            // Tcp clients
+            let tcp_client_deque = ReactiveDeque::new(tcp_client_deque)?.map(|s| Stream::new(s).unwrap());
+            let cli_authentication = Authentication::<_, LineCodec<AuthMessage>, _>::new(
+                config.clone(),
+                Some(tcp_client_throttle),
+            );
+            let tcp_cli = Clients::<_, LineCodec<Message>>::new(monitor.subscriber())?;
 
-            // Uds Clients
-            let incoming_streams = ReactiveDeque::new(uds_clients_deque)?.map(|s| Stream::new(s).unwrap());
-            let authentication = Authentication::new(config.clone(), None);
-            let clients = Clients::<_, _, LineCodec>::new(monitor.subscriber())?;
-            let uds_clients = incoming_streams.chain(authentication.chain(clients));
+            // Uds clients
+            let uds_client_deque = ReactiveDeque::new(uds_client_deque)?.map(|s| Stream::new(s).unwrap());
+            let uds_cli = Clients::<_, LineCodec<Message>>::new(monitor.subscriber())?;
 
-            // Uds Monitors
-            let incoming_streams = ReactiveDeque::new(uds_monitor_deque)?.map(|s| Stream::new(s).unwrap());
-            let authentication = Authentication::new(config.clone(), None);
-            let monitors = Monitors::<_, _, LineCodec>::new(monitor);
-            let uds_monitors = incoming_streams.chain(authentication.chain(monitors));
+            // Tcp monitors
+            let tcp_monitor_deque = ReactiveDeque::new(tcp_monitor_deque)?.map(|s| Stream::new(s).unwrap());
+            let mon_authentication = Authentication::<_, LineCodec<AuthMessage>, _>::new(
+                config.clone(),
+                Some(tcp_monitor_throttle),
+            );
+            let tcp_mon = Monitors::<_, LineCodec<Message>>::new(monitor.clone());
+
+            // Uds monitors
+            let uds_monitor_deque = ReactiveDeque::new(uds_monitor_deque)?.map(|s| Stream::new(s).unwrap());
+            let uds_mon = Monitors::<_, LineCodec<Message>>::new(monitor);
+
+            let tcp_client_run = tcp_client_deque.chain(tls(&config).chain(cli_authentication.chain(tcp_cli)));
+            let uds_client_run = uds_client_deque.chain(uds_cli);
+            let tcp_monitor_run = tcp_monitor_deque.chain(tls(&config).chain(mon_authentication.chain(tcp_mon)));
+            let uds_monitor_run = uds_monitor_deque.chain(uds_mon);
 
             System::start(
-                tcp_monitors
-                .and(tcp_clients)
-                .and(uds_monitors)
-                .and(uds_clients)
+                tcp_client_run
+                .and(tcp_monitor_run)
+                .and(uds_client_run)
+                .and(uds_monitor_run)
             )?;
             Ok(())
         });
     }
 
+    let tcp_client_run = tcp_listener_client
+        .map(|(s, _)| s)
+        .chain(client_throttle.chain(tcp_client_queue));
+
+    let tcp_monitor_run = tcp_listener_monitor
+        .map(|(s, _)| s)
+        .chain(monitor_throttle.chain(tcp_monitor_queue));
+
+    let uds_client_run = uds_listener_client
+        .map(|(s, _)| s)
+        .chain(uds_client_queue);
+
+    let uds_monitor_run = uds_listener_monitor
+        .map(|(s, _)| s)
+        .chain(uds_monitor_queue);
+
     System::start(
-        tcp_listener_client.map(|(s, _)| s).chain(tcp_client_queue)
-        .and(tcp_listener_monitor.map(|(s, _)| s).chain(tcp_monitor_queue))
-        .and(uds_listener_client.map(|(s, _)| s).chain(uds_client_queue))
-        .and(uds_listener_monitor.map(|(s, _)| s).chain(uds_monitor_queue))
+        tcp_client_run
+            .and(tcp_monitor_run)
+            .and(uds_client_run)
+            .and(uds_monitor_run),
     )?;
-    
     Ok(())
 }

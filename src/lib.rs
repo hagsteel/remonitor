@@ -1,4 +1,3 @@
-//#![allow(warnings)]
 pub mod server;
 mod codecs;
 mod monitors; 

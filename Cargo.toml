@@ -5,13 +5,13 @@ authors = ["Jonas Hagstedt <hagstedt@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-# sonr = {git = "https://github.com/hagsteel/sonr.git"}
-sonr = { path = "../sonr" }
-sonr_tls = { path = "../sonr-tls" }
+sonr = {git = "https://github.com/hagsteel/sonr.git"}
+sonr_tls = { git = "https://github.com/hagsteel/sonr-tls.git" }
+sonr_connection = { git = "https://github.com/hagsteel/sonr-connection.git" }
 bytes = { version = "0.4.11", features = ["serde"] }
 serde = { version = "1.0.88", features = ["derive"] }
 serde_json = "1.0.39"
-native-tls = "0.2.2"
 toml = "0.4.10"
 serde_derive = "1.0.88"
 log = "0.4.6"
+slog = "2.4.1"

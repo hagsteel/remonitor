@@ -1,11 +1,13 @@
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::time::{Duration, Instant};
+
+use sonr_tls::TlsStream;
 
 use sonr::errors::Result;
 use sonr::net::tcp::TcpStream;
 use sonr::net::uds::UnixStream;
 use sonr::prelude::*;
-use sonr::sync::queue::ReactiveQueue;
 use sonr::sync::signal::{ReactiveSignalReceiver, SignalSender};
 use sonr::sync::Capacity;
 
@@ -23,11 +25,10 @@ impl ThrottleKey for TcpStream {
     }
 }
 
-impl ThrottleKey for UnixStream {
+impl ThrottleKey for TlsStream<Stream<TcpStream>> {
     fn get_throttle_key(&self) -> Result<String> {
-        let addr = self.peer_addr()?;
-        eprintln!("{:?}", addr);
-        Ok(format!("{:?}", addr))
+        let addr = self.get_ref().inner().peer_addr()?;
+        Ok(addr.ip().to_string())
     }
 }
 
@@ -50,22 +51,18 @@ impl Throttle {
 pub struct ThrottledOutput<T> {
     throttle_rx: ReactiveSignalReceiver<(String, Throttle)>,
     throttled: HashMap<String, Throttle>,
-    inner: ReactiveQueue<T>,
     throttle_check: usize,
+    _p1: PhantomData<T>,
 }
 
 impl<T> ThrottledOutput<T> {
-    pub fn new(inner: ReactiveQueue<T>) -> Result<Self> {
+    pub fn new() -> Result<Self> {
         Ok(Self {
             throttle_rx: ReactiveSignalReceiver::new(Capacity::Unbounded.into())?,
             throttled: HashMap::new(),
-            inner,
             throttle_check: THROTTLE_CHECK,
+            _p1: PhantomData,
         })
-    }
-
-    pub fn get_mut(&mut self) -> &mut ReactiveQueue<T> {
-        &mut self.inner
     }
 
     pub fn sender(&self) -> SignalSender<(String, Throttle)> {
@@ -77,19 +74,8 @@ impl<T> Reactor for ThrottledOutput<T>
 where
     T: ThrottleKey + Send + 'static,
 {
-    type Output = ();
+    type Output = T;
     type Input = T;
-
-    // fn reacting(&mut self, event: Event) -> bool {
-    //     if self.throttle_rx.reacting(event) {
-    //         if let Ok((addr, throttle)) = self.throttle_rx.try_recv() {
-    //             self.throttled.insert(addr, throttle);
-    //         }
-    //         true
-    //     } else {
-    //         self.inner.reacting(event)
-    //     }
-    // }
 
     fn react(&mut self, reaction: Reaction<Self::Input>) -> Reaction<Self::Output> {
         match reaction {
@@ -112,34 +98,28 @@ where
 
                 if let Ok(key) = value.get_throttle_key() {
                     match self.throttled.get(&key).map(|t| t.expired()) {
-                        Some(false) => {}
                         Some(true) => {
                             self.throttled.remove(&key);
-                            self.inner.react_to(value);
+                            return Reaction::Value(value);
                         }
-                        None => self.inner.react(reaction),
+                        Some(_) | None => return Reaction::Value(value),
                     }
                 } else {
-                    self.inner.react(reaction);
+                    return Reaction::Value(value);
                 }
-
-                Reaction::Continue
             }
             Reaction::Event(event) => {
                 // Incoming throttles
-                if let Reaction::Value(val) = self.throttle_rx.react(event) {
-                } else {
-                    Reaction::Event(event)
+                if self.throttle_rx.token() != event.token() {
+                    return event.into();
                 }
 
-                if self.throttle_rx.reacting(event) {
-                    if let Ok((addr, throttle)) = self.throttle_rx.try_recv() {
-                        self.throttled.insert(addr, throttle);
-                    }
-                    true
-                } else {
-                    self.inner.reacting(event)
+                if let Reaction::Value(val) = self.throttle_rx.react(event.into()) {
+                    let (addr, throttle) = val;
+                    self.throttled.insert(addr, throttle);
                 }
+
+                Reaction::Continue
             } 
             Reaction::Continue => Reaction::Continue,
         }

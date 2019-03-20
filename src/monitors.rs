@@ -1,81 +1,83 @@
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
+use std::marker::PhantomData;
 
 use bytes::Bytes;
 use sonr::reactor::{Reaction, Reactor};
 use sonr::sync::broadcast::Broadcast;
-use sonr::{Event, Evented};
+use sonr::net::stream::{Stream, StreamRef};
+use sonr::{Evented, Token};
+use sonr_connection::{Codec, Connection};
 
-use crate::codecs::Codec;
-use crate::connections::{Message, status_msg};
-use crate::connections::{Connection, Connections, StreamRef};
+use crate::connections::messages::{status_msg, Message};
 
-// -----------------------------------------------------------------------------
-// 		- Monitor container -
-// -----------------------------------------------------------------------------
-pub struct Monitors<S: StreamRef<T>, T: Evented + Read + Write, C>
+pub struct Monitors<T, C>
 where
-    S: StreamRef<T> + Read + Write,
-    T: Evented + Read + Write,
+    T: StreamRef + Read + Write,
     C: Codec,
 {
-    connections: Connections<S, T, C>,
+    connections: HashMap<Token, Connection<T, C>>,
     broadcast: Broadcast<Bytes>,
 }
 
-impl<S, T, C> Monitors<S, T, C>
+impl<T, C> Monitors<T, C>
 where
-    S: StreamRef<T> + Read + Write,
-    T: Evented + Read + Write,
+    T: StreamRef + Read + Write,
     C: Codec,
 {
     pub fn new(broadcast: Broadcast<Bytes>) -> Self {
         Self {
-            connections: Connections::new(),
+            connections: HashMap::new(),
             broadcast,
         }
     }
 }
 
-impl<S, T, C> Reactor for Monitors<S, T, C>
+impl<T, C> Reactor for Monitors<T, C>
 where
-    S: StreamRef<T> + Read + Write,
-    T: Evented + Read + Write,
-    C: Codec,
+    T: StreamRef + Read + Write,
+    C: Codec<Message=Message>,
 {
-    type Input = (Connection<S, T>, C);
+    type Input = T;
     type Output = ();
 
     fn react(&mut self, reaction: Reaction<Self::Input>) -> Reaction<Self::Output> {
         match reaction {
             Reaction::Event(event) => {
                 let broadcast = &self.broadcast;
+                if let Some(con) = self.connections.get_mut(&event.token()) {
+                    let mut messages = VecDeque::new();
+                    if let Reaction::Value(val) = con.react(event.into()) {
+                        messages.push_back(val);
+                        while let Reaction::Value(val) = con.react(Reaction::Continue) {
+                            messages.push_back(val);
+                        }
+                    }
 
-                let r = self
-                    .connections
-                    .read_messages::<_, Message>(event, |message| { 
-                        broadcast.publish(C::encode(message))
-                    });
-
-                let w = self.connections.write_messages(event);
-
-                if w | r {
+                    for message in messages {
+                        match message {
+                            Ok(msg) => {
+                                broadcast.publish(C::encode(msg));
+                            }
+                            Err(e) => {
+                                self.connections.remove(&event.token());
+                                return Reaction::Continue
+                            }
+                        }
+                    }
                     Reaction::Continue
                 } else {
-                    Reaction::Event(event)
+                    event.into()
                 }
-            } 
-            Reaction::Value(value) => {
-                let (mut connection, codec) = value;
+            }
+            Reaction::Value(stream) => {
                 let buf = status_msg("OK");
                 let bytes = C::encode(buf);
-                connection.push_write_buffer(bytes);
-                if connection.writable() {
-                    while let Some(Ok(_)) = connection.write_buffer() { }
-                }
+                let mut connection = Connection::new(stream, C::default());
+                connection.add_write_buffer(bytes);
+                connection.write_buffers();
 
-                self.connections
-                    .connections
-                    .insert(connection.token(), (connection, codec));
+                self.connections.insert(connection.token(), connection);
 
                 Reaction::Continue
             }
