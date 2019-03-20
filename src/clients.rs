@@ -31,21 +31,6 @@ where
             connections: HashMap::new(),
         })
     }
-
-    fn receive_messages(&mut self, token: Token) -> bool {
-        if token != self.receiver.token() {
-            return false;
-        }
-
-        while let Ok(message) = self.receiver.try_recv() {
-            for con in self.connections.values_mut() {
-                con.add_write_buffer(message.clone());
-                con.write_buffers();
-            }
-        }
-
-        true
-    }
 }
 
 impl<T, C> Reactor for Clients<T, C>
@@ -58,27 +43,32 @@ where
 
     fn react(&mut self, reaction: Reaction<Self::Input>) -> Reaction<Self::Output> {
         match reaction {
-            Reaction::Value(value) => { 
-                let mut connection = Connection::new(value, C::default());
-                let buf = status_msg("OK");
-                let bytes = C::encode(buf);
-                connection.add_write_buffer(bytes);
-                connection.write_buffers();
-
-                self.connections.insert(connection.token(), connection); 
-                Reaction::Continue
-            }
             Reaction::Event(event) => {
-                if self.receive_messages(event.token()) {
-                    return Reaction::Continue
+                if event.token() == self.receiver.token() {
+                    while let Ok(message) = self.receiver.try_recv() {
+                        for con in self.connections.values_mut() {
+                            con.add_write_buffer(message.clone());
+                            con.write_buffers();
+                        }
+                    }
+                    return Reaction::Continue;
                 }
 
                 if let Some(con) = self.connections.get_mut(&event.token()) {
-                    con.write_buffers();
+                    let _ = con.react(event.into());
                     Reaction::Continue
                 } else {
                     Reaction::Event(event)
                 }
+            }
+            Reaction::Value(stream) => { 
+                let buf = status_msg("OK");
+                let bytes = C::encode(buf);
+                let mut connection = Connection::new(stream, C::default());
+                connection.add_write_buffer(bytes);
+                connection.write_buffers();
+                self.connections.insert(connection.token(), connection); 
+                Reaction::Continue
             }
             Reaction::Continue => Reaction::Continue,
         }

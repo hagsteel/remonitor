@@ -76,9 +76,7 @@ where
                 let mut connection = Connection::new(stream, C::default());
                 connection.add_write_buffer(bytes);
                 connection.write_buffers();
-
                 self.connections.insert(connection.token(), connection);
-
                 Reaction::Continue
             }
             Reaction::Continue => Reaction::Continue,
