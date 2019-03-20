@@ -61,7 +61,7 @@ pub fn serve(config: Config) -> Result<()> {
         Optional::new(config.use_uds(), || uds_listener(config.uds_monitor_path()));
     let mut uds_monitor_queue = ReactiveQueue::unbounded();
 
-    for _ in 0..8 {
+    for _ in 0..config.thread_count {
         let tcp_client_throttle = client_throttle.sender();
         let tcp_monitor_throttle = monitor_throttle.sender();
         let tcp_client_deque = tcp_client_queue.deque();
