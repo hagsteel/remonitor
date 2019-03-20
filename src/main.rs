@@ -16,6 +16,7 @@ const USAGE: &'static str = "
 Remonitor
 
 Usage:
+    remonitor
     remonitor (-c | --config) <config>
 
 Options:

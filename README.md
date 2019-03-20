@@ -20,3 +20,21 @@ enable_log = true
 "client1" = "password1"
 "monitor1" = "password2"
 ```
+
+# Sending and receiving messages:
+
+Messages are json encoded and separated by a newline character `\n`.
+
+## Authenticating:
+
+Send two messages. The first one is the username and the second one is the
+password.
+
+`{"payload": "username"}` followed by `{"payload": "password"}`
+
+Upon successful authentication an "OK" message is sent in response. 
+
+```{"payload": "OK", "message_type": "status"}```
+
+A client can then start receiving updates.
+A monitor is then able to start sending updates.
