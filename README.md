@@ -14,12 +14,13 @@ tcp_monitor_host = "0.0.0.0:5556"
 thread_count = 8
 pfx_cert_path = "/path/to/pfx"
 pfx_pass = "<password>"
-enable_log = true
 
 [auth]
 "client1" = "password1"
 "monitor1" = "password2"
 ```
+
+To disable either tcp or uds remove the path / host information from the config.
 
 # Sending and receiving messages:
 

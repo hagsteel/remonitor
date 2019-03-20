@@ -15,7 +15,6 @@ pub struct Config {
     pub pfx_cert_path: String,
     pub pfx_pass: String,
     pub thread_count: usize,
-    pub enable_log: bool,
 }
 
 impl Config {
