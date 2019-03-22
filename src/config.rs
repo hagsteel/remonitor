@@ -1,5 +1,4 @@
-use std::io::{Read, BufReader};
-use std::fs::File;
+use std::fs;
 use std::collections::HashMap;
 use sonr::reactor::{Reactor, Reaction};
 use sonr::errors::Result;
@@ -19,11 +18,8 @@ pub struct Config {
 
 impl Config {
     pub fn from_file(path: &str) -> Result<Self> {
-        let mut buf = Vec::new();
-        let file = File::open(path)?;
-        let mut br = BufReader::new(file);
-        br.read_to_end(&mut buf);
-        Ok(toml::from_slice(&buf).unwrap())
+        let cfg_file = fs::read_to_string(path)?;
+        Ok(toml::from_str(&cfg_file).unwrap())
     }
 
     pub fn use_uds(&self) -> bool {

@@ -6,7 +6,6 @@ use sonr_tls::TlsStream;
 
 use sonr::errors::Result;
 use sonr::net::tcp::TcpStream;
-use sonr::net::uds::UnixStream;
 use sonr::prelude::*;
 use sonr::sync::signal::{ReactiveSignalReceiver, SignalSender};
 use sonr::sync::Capacity;

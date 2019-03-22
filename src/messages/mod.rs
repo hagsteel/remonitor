@@ -4,21 +4,22 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum MessageType {
     Error,
-    Status
+    Status,
+    System,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Message {
-    payload: String,
+    payload: Vec<u8>,
+    channel: Vec<u8>,
     message_type: MessageType,
 }
 
 pub fn status_msg(msg: &str) -> Message {
     Message { 
-        payload: msg.to_owned(),
-        message_type: MessageType::Status,
+        payload: msg.into(),
+        channel: String::from("SYSTEM").into_bytes(),
+        message_type: MessageType::System,
     }
 }
-
-

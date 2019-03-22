@@ -9,7 +9,7 @@ use sonr::net::stream::StreamRef;
 use sonr::Token;
 
 use sonr_connection::{Codec, Connection};
-use crate::connections::messages::status_msg;
+use crate::messages::status_msg;
 
 pub struct Clients<T, C>
 where

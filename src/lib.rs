@@ -1,7 +1,7 @@
 pub mod server;
 mod codecs;
 mod monitors; 
-mod connections;
+mod messages;
 mod clients;
 mod auth;
 mod throttle;

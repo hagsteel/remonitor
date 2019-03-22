@@ -1,15 +1,15 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
-use std::marker::PhantomData;
 
+use log::error;
 use bytes::Bytes;
 use sonr::reactor::{Reaction, Reactor};
 use sonr::sync::broadcast::Broadcast;
-use sonr::net::stream::{Stream, StreamRef};
-use sonr::{Evented, Token};
+use sonr::net::stream::StreamRef;
+use sonr::Token;
 use sonr_connection::{Codec, Connection};
 
-use crate::connections::messages::{status_msg, Message};
+use crate::messages::{status_msg, Message};
 
 pub struct Monitors<T, C>
 where
@@ -60,6 +60,8 @@ where
                                 broadcast.publish(C::encode(msg));
                             }
                             Err(e) => {
+                                error!("{:?}", e);
+                                // con.add_write_buffer(b"");
                                 self.connections.remove(&event.token());
                                 return Reaction::Continue
                             }

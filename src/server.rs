@@ -16,7 +16,7 @@ use crate::auth::{AuthMessage, Authentication};
 use crate::clients::Clients;
 use crate::codecs::LineCodec;
 use crate::config::{Config, Optional};
-use crate::connections::messages::Message;
+use crate::messages::Message;
 use crate::monitors::Monitors;
 use crate::throttle::ThrottledOutput;
 
